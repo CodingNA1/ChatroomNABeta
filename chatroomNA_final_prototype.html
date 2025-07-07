@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chatroom NA - Don't use in school! Teachers click this link https://forms.gle/7dNXX5avZ9qXenAG6</title>
+<style>
+  body { font-family: Arial; max-width: 900px; margin: 20px auto; padding: 10px; background: #f9f9f9; color: #222; }
+  .section { display: none; }
+  .visible { display: block; }
+  input, button, select, textarea { width: 100%; padding: 10px; margin: 6px 0; font-size: 1em; }
+  button { background: #28a745; color: white; border: none; cursor: pointer; }
+  #chatBox { background: white; border: 1px solid #ccc; height: 300px; overflow-y: auto; padding: 10px; margin-bottom: 10px; }
+  .notif { position: fixed; bottom: 10px; right: 10px; background: #222; color: #fff; padding: 10px; border-radius: 5px; display: none; }
+  .user-list { background: #f1f1f1; max-height: 300px; overflow-y: auto; padding: 10px; margin: 10px 0; font-family: monospace; }
+  .tag-owner { color: red; font-weight: bold; }
+  .tag-teacher { color: blue; font-weight: bold; }
+  hr { border: 1px solid #ccc; }
+</style>
+</head>
+<body>
+
+<h2>Welcome to ChatroomNA</h2>
+<p><strong>Teachers:</strong> <a href="https://forms.gle/7dNXX5avZ9qXenAG6" target="_blank" rel="noopener">Click here to request access</a></p>
+
+<div id="loginMenu" class="visible section">
+  <button onclick="show('signup')">Student Sign-Up</button>
+  <button onclick="show('studentLogin')">Student Login</button>
+  <button onclick="show('teacherLogin')">Teacher Login</button>
+  <button onclick="show('adminLogin')">Admin Login</button>
+</div>
+
+<!-- Student Sign-Up -->
+<div id="signup" class="section">
+  <h3>Student Sign-Up</h3>
+  <input id="sName" placeholder="First & Last Name" />
+  <input id="sEmail" placeholder="Email (@wpsstudent.org)" />
+  <input id="sID" placeholder="Student ID" />
+  <input id="sPass" type="password" placeholder="Password" />
+  <input id="sRoom" placeholder="Chatroom Code" />
+  <button onclick="signup()">Sign Up</button>
+  <button onclick="show('loginMenu')">Back</button>
+</div>
+
+<!-- Student Login -->
+<div id="studentLogin" class="section">
+  <h3>Student Login</h3>
+  <input id="lName" placeholder="Name" />
+  <input id="lPass" type="password" placeholder="Password" />
+  <input id="lRoom" placeholder="Chatroom Code" />
+  <button onclick="login()">Login</button>
+  <button onclick="show('loginMenu')">Back</button>
+</div>
+
+<!-- Teacher Login -->
+<div id="teacherLogin" class="section">
+  <h3>Teacher Login</h3>
+  <input id="teacherCode" placeholder="Teacher Code" />
+  <button onclick="teacherLogin()">Login</button>
+  <button onclick="show('loginMenu')">Back</button>
+</div>
+
+<!-- Admin Login -->
+<div id="adminLogin" class="section">
+  <h3>Admin Login</h3>
+  <input id="adminCode" placeholder="Admin Code" />
+  <button onclick="adminLogin()">Login</button>
+  <button onclick="show('loginMenu')">Back</button>
+</div>
+
+<!-- Chatroom -->
+<div id="chatroom" class="section">
+  <h3 id="chatTitle">Chatroom</h3>
+  <div id="chatBox"></div>
+  <input id="msg" placeholder="Type a message" />
+  <button onclick="send()">Send</button>
+  <p id="typing"></p>
+  <button onclick="logout()">Logout</button>
+  <button id="adminPanelBtn" onclick="show('adminPanel')" style="display:none;">Admin Panel</button>
+</div>
+
+<!-- Admin Panel -->
+<div id="adminPanel" class="section">
+  <h3>Admin Panel</h3>
+
+  <h4>Ban / Unban Users</h4>
+  <input id="banUser" placeholder="Username to Ban / Unban" />
+  <button onclick="banUser()">Ban User</button>
+  <button onclick="unbanUser()">Unban User</button>
+
+  <input id="banEmail" placeholder="Email to Ban / Unban" />
+  <button onclick="banEmail()">Ban Email</button>
+  <button onclick="unbanEmail()">Unban Email</button>
+
+  <h4>Group Chat Codes</h4>
+  <textarea id="groupChatsList" readonly style="height:80px;"></textarea>
+  <input id="newGroupCode" placeholder="New Group Chat Code" />
+  <button onclick="addGroupChat()">Add Group Chat</button>
+  <button onclick="removeGroupChat()">Remove Group Chat</button>
+
+  <h4>Teacher Management</h4>
+  <textarea id="teacherList" readonly style="height:80px;"></textarea>
+  <input id="newTeacherCode" placeholder="New Teacher Code (5-6 digits)" maxlength="6" />
+  <input id="assignStudents" placeholder="Assign students (comma separated names or IDs)" />
+  <button onclick="addTeacher()">Add Teacher</button>
+  <button onclick="removeTeacher()">Remove Teacher</button>
+
+  <h4>Students & Teachers Info</h4>
+  <div id="userList" class="user-list"></div>
+  <div id="teacherInfoList" class="user-list"></div>
+
+  <button onclick="show('chatroom')">Back to Chatroom</button>
+</div>
+
+<div class="notif" id="notifBox">New message!</div>
+
+<script>
+/* Data structures stored in localStorage */
+let users = JSON.parse(localStorage.getItem('users') || '[]');
+let bannedUsers = JSON.parse(localStorage.getItem('bannedUsers') || '[]');
+let bannedEmails = JSON.parse(localStorage.getItem('bannedEmails') || '[]');
+let groupChats = JSON.parse(localStorage.getItem('groupChats') || '[]');
+let teachers = JSON.parse(localStorage.getItem('teachers') || '[]'); // {code:string, allowedStudents:[string]}
+
+let currentUser = null;
+let typingTimeout = null;
+
+/* UI Helpers */
+function show(id) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('visible'));
+  document.getElementById(id).classList.add('visible');
+  if (id === 'adminPanel') {
+    loadAdminPanel();
+  }
+}
+
+/* Save data */
+function saveAll() {
+  localStorage.setItem('users', JSON.stringify(users));
+  localStorage.setItem('bannedUsers', JSON.stringify(bannedUsers));
+  localStorage.setItem('bannedEmails', JSON.stringify(bannedEmails));
+  localStorage.setItem('groupChats', JSON.stringify(groupChats));
+  localStorage.setItem('teachers', JSON.stringify(teachers));
+}
+
+/* Signup */
+function signup() {
+  const name = sName.value.trim();
+  const email = sEmail.value.trim();
+  const id = sID.value.trim();
+  const pass = sPass.value.trim();
+  const room = sRoom.value.trim();
+
+  if (!name || !email || !id || !pass || !room) return alert("Please fill all fields.");
+  if (!email.endsWith('@wpsstudent.org')) return alert('Email must end with @wpsstudent.org');
+
+  if (users.find(u => u.email === email)) return alert('Email already registered.');
+  if (users.find(u => u.name === name && u.chatroom === room)) return alert('User already exists in this chatroom.');
+
+  users.push({name,email,id,password:pass,chatroom:room});
+  saveAll();
+  alert('Account created! Please login.');
+  show('loginMenu');
+}
+
+/* Student Login */
+function login() {
+  const name = lName.value.trim();
+  const pass = lPass.value.trim();
+  const room = lRoom.value.trim();
+
+  if (!name || !pass || !room) return alert("Fill all login fields.");
+
+  const user = users.find(u => u.name === name && u.password === pass && u.chatroom === room);
+  if (!user) return alert('Invalid login.');
+  if (bannedUsers.includes(name) || bannedEmails.includes(user.email)) return alert('You are banned.');
+
+  currentUser = {...user, role:'student'};
+  enterChatroom(room);
+}
+
+/* Teacher Login */
+function teacherLogin() {
+  const code = teacherCode.value.trim();
+  if (!code) return alert('Enter teacher code.');
+
+  const teacher = teachers.find(t => t.code === code);
+  if (!teacher) return alert('Invalid teacher code.');
+
+  currentUser = {name:'[Teacher]', role:'teacher', allowedStudents: teacher.allowedStudents || [], chatroom: 'ALL', code: code};
+  enterChatroom('ALL');
+}
+
+/* Admin Login */
+function adminLogin() {
+  const code = adminCode.value.trim();
+  if (code === 'Nirbhik2012*') {
+    currentUser = {name:'[Owner]', role:'admin', chatroom:'ALL'};
+    enterChatroom('ALL');
+    adminPanelBtn.style.display = 'block';
+  } else {
+    alert('Wrong admin code');
+  }
+}
+
+/* Enter Chatroom */
+function enterChatroom(room) {
+  show('chatroom');
+  chatTitle.innerText = 'Chatroom: ' + room;
+  adminPanelBtn.style.display = (currentUser.role === 'admin') ? 'block' : 'none';
+  loadChat();
+}
+
+/* Logout */
+function logout() {
+  currentUser = null;
+  adminPanelBtn.style.display = 'none';
+  show('loginMenu');
+  clearChat();
+}
+
+/* Chat messages (stored in memory only for prototype) */
+let chatMessages = [];
+
+/* Send message */
+function send() {
+  const text = msg.value.trim();
+  if (!text) return;
+  
+  // Check if user is in a group chat code (except admin)
+  if (currentUser.role === 'student' && !groupChats.includes(currentUser.chatroom)) {
+    alert('Invalid chatroom code.');
+    return;
+  }
+
+  // For teacher, filter messages shown later - sending is allowed for all in ALL chatroom
+  // Admin messages get [Owner] tag
+  const prefix = (currentUser.role === 'admin') ? '[Owner] ' : (currentUser.role === 'teacher') ? '[Teacher] ' : '';
+  
+  chatMessages.push({
+    sender: currentUser.name,
+    role: currentUser.role,
+    chatroom: currentUser.chatroom,
+    text,
+    time: new Date().toISOString()
+  });
+  displayMessages();
+  msg.value = '';
+
+  showNotification('New message!');
+}
+
+/* Load chat messages */
+function loadChat() {
+  displayMessages();
+}
+
+/* Clear chat box */
+function clearChat() {
+  chatBox.innerHTML = '';
+  chatMessages = [];
+}
+
+/* Display messages according to roles and permissions */
+function displayMessages() {
+  chatBox.innerHTML = '';
+
+  chatMessages.forEach(msgObj => {
+    // Only show messages in the current user's chatroom or 'ALL' for admins/teachers
+    if (currentUser.role === 'student') {
+      if (msgObj.chatroom !== currentUser.chatroom) return; // students see only their room
+    }
+    else if (currentUser.role === 'teacher') {
+      // teacher sees only messages from allowed students or teachers/admins
+      if (msgObj.role === 'student' && !currentUser.allowedStudents.includes(msgObj.sender)) return;
+      // teachers see all admins and teachers messages
+    }
+
+    // admin sees all messages
+
+    const div = document.createElement('div');
+    let nameDisplay = msgObj.sender;
+    if (msgObj.role === 'admin') nameDisplay = '<span class="tag-owner">[Owner] ' + nameDisplay + '</span>';
+    else if (msgObj.role === 'teacher') nameDisplay = '<span class="tag-teacher">[Teacher] ' + nameDisplay + '</span>';
+    div.innerHTML = `<strong>${nameDisplay}:</strong> ${escapeHtml(msgObj.text)}`;
+    chatBox.appendChild(div);
+  });
+
+  chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+/* Show notification */
+function showNotification(text) {
+  const notif = document.getElementById('notifBox');
+  notif.textContent = text;
+  notif.style.display = 'block';
+  clearTimeout(notif._timeout);
+  notif._timeout = setTimeout(() => { notif.style.display = 'none'; }, 2000);
+}
+
+/* Admin functions */
+
+/* Ban/Unban User */
+function banUser() {
+  const name = banUser.value.trim();
+  if (!name) return alert('Enter username');
+  if (!bannedUsers.includes(name)) {
+    bannedUsers.push(name);
+    saveAll();
+    alert('User banned: ' + name);
+  } else alert('User already banned.');
+}
+function unbanUser() {
+  const name = banUser.value.trim();
+  const index = bannedUsers.indexOf(name);
+  if (index !== -1) {
+    bannedUsers.splice(index,1);
+    saveAll();
+    alert('User unbanned: ' + name);
+  } else alert('User not found in ban list.');
+}
+
+/* Ban/Unban Email */
+function banEmail() {
+  const email = banEmail.value.trim();
+  if (!email) return alert('Enter email');
+  if (!bannedEmails.includes(email)) {
+    bannedEmails.push(email);
+    saveAll();
+    alert('Email banned: ' + email);
+  } else alert('Email already banned.');
+}
+function unbanEmail() {
+  const email = banEmail.value.trim();
+  const index = bannedEmails.indexOf(email);
+  if (index !== -1) {
+    bannedEmails.splice(index,1);
+    saveAll();
+    alert('Email unbanned: ' + email);
+  } else alert('Email not found in ban list.');
+}
+
+/* Group Chat Management */
+function addGroupChat() {
+  const code = newGroupCode.value.trim();
+  if (!code) return alert('Enter group chat code');
+  if (groupChats.includes(code)) return alert('Group chat code exists');
+  groupChats.push(code);
+  saveAll();
+  alert('Group chat added: ' + code);
+  loadAdminPanel();
+}
+function removeGroupChat() {
+  const code = newGroupCode.value.trim();
+  const idx = groupChats.indexOf(code);
+  if (idx === -1) return alert('Group chat code not found');
+  groupChats.splice(idx,1);
+  saveAll();
+  alert('Group chat removed: ' + code);
+  loadAdminPanel();
+}
+
+/* Teacher Management */
+function addTeacher() {
+  const code = newTeacherCode.value.trim();
+  if (!code.match(/^\\d{5,6}$/)) return alert('Teacher code must be 5 or 6 digits');
+  if (teachers.find(t => t.code === code)) return alert('Teacher code exists');
+  const assignedRaw = assignStudents.value.trim();
+  const assignedList = assignedRaw ? assignedRaw.split(',').map(s => s.trim()).filter(s => s) : [];
+  teachers.push({code, allowedStudents: assignedList});
+  saveAll();
+  alert('Teacher added with code: ' + code);
+  loadAdminPanel();
+}
+function removeTeacher() {
+  const code = newTeacherCode.value.trim();
+  const idx = teachers.findIndex(t => t.code === code);
+  if (idx === -1) return alert('Teacher code not found');
+  teachers.splice(idx,1);
+  saveAll();
+  alert('Teacher removed: ' + code);
+  loadAdminPanel();
+}
+
+/* Load admin panel data */
+function loadAdminPanel() {
+  banUser.value = '';
+  banEmail.value = '';
+  newGroupCode.value = '';
+  newTeacherCode.value = '';
+  assignStudents.value = '';
+
+  groupChatsList.value = groupChats.join('\\n');
+  teacherList.value = teachers.map(t => t.code + ' -> ' + (t.allowedStudents.join(', ') || 'No assigned students')).join('\\n');
+
+  renderUsers();
+  renderTeachers();
+}
+
+/* Render students list */
+function renderUsers() {
+  const list = userList;
+  list.innerHTML = '';
+  users.forEach((u,i) => {
+    const banned = bannedUsers.includes(u.name) ? ' (BANNED)' : '';
+    const div = document.createElement('div');
+    div.innerHTML = `<strong>${u.name}${banned}</strong> | Email: ${u.email} | ID: ${u.id} | Room: ${u.chatroom}<br>
+    Password: ${u.password} <br>
+    <input id="pass${i}" placeholder="New password" />
+    <button onclick="changePass(${i})">Change Password</button><hr>`;
+    list.appendChild(div);
+  });
+}
+
+/* Render teachers list */
+function renderTeachers() {
+  const list = teacherInfoList;
+  list.innerHTML = '';
+  teachers.forEach((t,i) => {
+    const div = document.createElement('div');
+    div.innerHTML = `<strong>Teacher Code:</strong> ${t.code}<br>
+    <strong>Allowed Students:</strong> ${t.allowedStudents.join(', ') || '(none)'}<hr>`;
+    list.appendChild(div);
+  });
+}
+
+/* Change user password */
+function changePass(i) {
+  const newPass = document.getElementById('pass'+i).value.trim();
+  if (newPass.length < 2) return alert('Password too short.');
+  users[i].password = newPass;
+  saveAll();
+  alert('Password changed for ' + users[i].name);
+  renderUsers();
+}
+
+/* Utility escape html */
+function escapeHtml(text) {
+  const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+  return text.replace(/[&<>"']/g, m => map[m]);
+}
+
+/* Initialize */
+show('loginMenu');
+</script>
+</body>
+</html>
